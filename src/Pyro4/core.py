@@ -864,6 +864,16 @@ class DaemonObject(object):
     def ping(self):
         """a simple do-nothing method for testing purposes"""
         pass
+    
+    def getObject(self, objectId):
+        """
+        return a registered object from its object id.
+        This is mostly useful to get a proxy with all the information about the
+        object automatically.
+        It will raise an exception if the object is not registered.
+        """
+        assert isinstance(objectId, basestring)
+        return self.daemon.objectsById[objectId]
 
 
 class Daemon(object):
@@ -1216,7 +1226,7 @@ class Daemon(object):
         else:
             loc=self.locationStr
         return URI("PYRO:%s@%s" % (objectOrId, loc))
-
+        
     def close(self):
         """Close down the server and release resources"""
         log.debug("daemon closing")
