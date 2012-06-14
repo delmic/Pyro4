@@ -160,7 +160,7 @@ class _RemoteMethod(object):
 def _check_hmac():
     if Pyro4.config.HMAC_KEY is None or len(Pyro4.config.HMAC_KEY)==0:
         import warnings
-        warnings.warn("HMAC_KEY not set, protocol data may not be secure")
+#        warnings.warn("HMAC_KEY not set, protocol data may not be secure")
     elif sys.version_info>=(3,0) and type(Pyro4.config.HMAC_KEY) is not bytes:
         raise errors.PyroError("HMAC_KEY must be bytes type")
 
