@@ -5,16 +5,25 @@ Pyro - Python Remote Objects.  Copyright by Irmen de Jong (irmen@razorvine.net).
 """
 
 from __future__ import with_statement
-import re, struct, sys, time, os
-import logging, uuid
-import hashlib, hmac
+from Pyro4 import constants, threadutil, util, socketutil, errors
+from Pyro4.socketserver.multiplexserver import SocketServer_Select, SocketServer_Poll
+from Pyro4.socketserver.threadpoolserver import SocketServer_Threadpool
+import Pyro4
+import functools
+import hashlib
+import hmac
+import inspect
+import logging
+import uuid
+import re
+import struct
+import sys
+import time
+import os
 try:
     import copyreg
 except ImportError:
     import copy_reg as copyreg
-from Pyro4 import constants, threadutil, util, socketutil, errors
-from Pyro4.socketserver.threadpoolserver import SocketServer_Threadpool
-from Pyro4.socketserver.multiplexserver import SocketServer_Select, SocketServer_Poll
 from Pyro4 import futures
 import Pyro4
 
@@ -178,7 +187,7 @@ class Proxy(object):
     _pyroSerializer=util.Serializer()
     __pyroAttributes=frozenset(["__getnewargs__", "__getinitargs__", "_pyroConnection", "_pyroUri", "_pyroOneway", "_pyroTimeout", "_pyroSeq"])
 
-    def __init__(self, uri):
+    def __init__(self, uri, oneways=set()):
         """
         .. autoattribute:: _pyroOneway
         .. autoattribute:: _pyroTimeout
@@ -190,7 +199,7 @@ class Proxy(object):
             raise TypeError("expected Pyro URI")
         self._pyroUri=uri
         self._pyroConnection=None
-        self._pyroOneway=set()
+        self._pyroOneway=set(oneways)
         self._pyroSeq=0    # message sequence number
         self.__pyroTimeout=Pyro4.config.COMMTIMEOUT
         self.__pyroLock=threadutil.Lock()
@@ -595,12 +604,24 @@ class MessageFactory(object):
         return msgType, flags, seq, databytes
 
 
+def get_oneways(self):
+    """
+    list the names of all the methods declared oneway in an object
+    self: the object (instance of a class)
+    return (list of strings)
+    """
+    oneways = []
+    for name, method in inspect.getmembers(self, inspect.ismethod):
+        if getattr(method, "_pyroIsOneway", False):
+            oneways.append(name)
+    return oneways
+
 def pyroObjectSerializer(self):
     """reduce function that automatically replaces Pyro objects by a Proxy"""
     daemon=getattr(self,"_pyroDaemon",None)
     if daemon:
         # only return a proxy if the object is a registered pyro object
-        return Pyro4.core.Proxy, (daemon.uriFor(self),)
+        return Pyro4.core.Proxy, (daemon.uriFor(self), get_oneways(self))
     else:
         return self.__reduce__()
 
@@ -959,5 +980,15 @@ def callback(object):
     object._pyroCallback=True
     return object
 
+def oneway(func):
+    """
+    Decorator to mark a function "one way": the caller don't need to wait for 
+    the result. The caller will always receive None from the call to such function.
+    Note that it has to be a method (not a function) as we share always a whole 
+    object remotely.
+    """
+    func._pyroIsOneway = True
+    return func
 
 # backward compatibility
+
