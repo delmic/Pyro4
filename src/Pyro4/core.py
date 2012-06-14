@@ -871,6 +871,8 @@ class Daemon(object):
     Pyro daemon. Contains server side logic and dispatches incoming remote method calls
     to the appropriate objects.
     """
+    serializers=dict() # dict of type -> serializer
+    
     def __init__(self, host=None, port=0, unixsocket=None, nathost=None, natport=None):
         _check_hmac()  # check if hmac secret key is set
         if host is None:
@@ -1154,7 +1156,14 @@ class Daemon(object):
         if Pyro4.config.AUTOPROXY:
             # register a custom serializer for the type to automatically return proxies
             try:
-                copyreg.pickle(type(obj),pyroObjectSerializer)
+                if isinstance(obj, tuple(self.serializers)):
+                    # Find the most fitting serializer by picking the highest in the mro
+                    for t in type(obj).__mro__:
+                        if t in self.serializers:
+                            copyreg.pickle(type(obj), self.serializers[t])
+                            break
+                else:
+                    copyreg.pickle(type(obj),pyroObjectSerializer)
             except TypeError:
                 pass
         # register the object in the mapping
