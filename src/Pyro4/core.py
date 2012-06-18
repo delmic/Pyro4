@@ -237,7 +237,7 @@ class Proxy(object):
 
     def __copy__(self):
         uriCopy=URI(self._pyroUri)
-        return Proxy(uriCopy)
+        return Proxy(uriCopy, self._pyroOneway, self._pyroAsyncs)
 
     def __enter__(self):
         return self
