@@ -874,7 +874,7 @@ class DaemonObject(object):
         """
         assert isinstance(objectId, basestring)
         return self.daemon.objectsById[objectId]
-
+    
 
 class Daemon(object):
     """
@@ -883,7 +883,7 @@ class Daemon(object):
     """
     serializers=dict() # dict of type -> serializer
     
-    def __init__(self, host=None, port=0, unixsocket=None, nathost=None, natport=None):
+    def __init__(self, host=None, port=0, unixsocket=None, nathost=None, natport=None, interface=DaemonObject):
         _check_hmac()  # check if hmac secret key is set
         if host is None:
             host=Pyro4.config.HOST
@@ -921,7 +921,7 @@ class Daemon(object):
         if self.natLocationStr:
             log.debug("NAT address is %s", self.natLocationStr)
         self.serializer=util.Serializer()
-        pyroObject=DaemonObject(self)
+        pyroObject=interface(self)
         pyroObject._pyroId=constants.DAEMON_NAME
         #: Dictionary from Pyro object id to the actual Pyro object registered by this id
         self.objectsById={pyroObject._pyroId: pyroObject}
