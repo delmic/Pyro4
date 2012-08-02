@@ -186,7 +186,7 @@ class Proxy(object):
     _pyroSerializer=util.Serializer()
     __pyroAttributes=frozenset(["__getnewargs__", "__getinitargs__", "_pyroConnection", "_pyroFutureDaemon", "_pyroUri", "_pyroOneway", "_pyroAsyncs", "_pyroTimeout", "_pyroSeq"])
 
-    def __init__(self, uri, oneways=set(), asyncs=set()):
+    def __init__(self, uri):
         """
         .. autoattribute:: _pyroOneway
         .. autoattribute:: _pyroAsyncs
@@ -200,8 +200,8 @@ class Proxy(object):
         self._pyroUri=uri
         self._pyroConnection=None
         self._pyroFutureDaemon=None
-        self._pyroOneway=set(oneways)
-        self._pyroAsyncs=set(asyncs)
+        self._pyroOneway=set()
+        self._pyroAsyncs=set()
         self._pyroSeq=0    # message sequence number
         self.__pyroTimeout=Pyro4.config.COMMTIMEOUT
         self.__pyroLock=threadutil.Lock()
@@ -230,14 +230,15 @@ class Proxy(object):
 
     def __setstate__(self, state):
         self._pyroUri, self._pyroOneway, self._pyroAsyncs, self._pyroSerializer, self.__pyroTimeout = state
-        self._pyroConnection=None
+        self._pyroConnection=None 
+        self._pyroFutureDaemon=None
         self._pyroSeq=0
         self.__pyroLock=threadutil.Lock()
         self.__pyroConnLock=threadutil.Lock()
 
     def __copy__(self):
         uriCopy=URI(self._pyroUri)
-        return Proxy(uriCopy, self._pyroOneway, self._pyroAsyncs)
+        return Proxy(uriCopy) # TODO need to duplicate oneways and async as well
 
     def __enter__(self):
         return self
@@ -713,7 +714,7 @@ class ClientFuture(object):
     
     def _unregister(self):
         # needed to be sure to have all references removed once it's not used
-        if hasattr(self,"_pyroDaemon"):
+        if hasattr(self, "_pyroDaemon"):
             self._pyroDaemon.unregister(self)
 
 
@@ -823,7 +824,7 @@ def get_oneways(self):
     for name, method in inspect.getmembers(self, inspect.ismethod):
         if getattr(method, "_pyroIsOneway", False):
             oneways.append(name)
-    return oneways
+    return set(oneways)
 
 def get_asyncs(self):
     """
@@ -835,14 +836,16 @@ def get_asyncs(self):
     for name, method in inspect.getmembers(self, inspect.ismethod):
         if getattr(method, "_pyroIsAsync", False):
             asyncs.append(name)
-    return asyncs
+    return set(asyncs)
 
 def pyroObjectSerializer(self):
     """reduce function that automatically replaces Pyro objects by a Proxy"""
     daemon=getattr(self,"_pyroDaemon",None)
     if daemon:
         # only return a proxy if the object is a registered pyro object
-        return Pyro4.core.Proxy, (daemon.uriFor(self), get_oneways(self), get_asyncs(self))
+        return (Pyro4.core.Proxy, (daemon.uriFor(self),), 
+                (daemon.uriFor(self), get_oneways(self), get_asyncs(self),
+                 util.Serializer(), Pyro4.config.COMMTIMEOUT))
     else:
         return self.__reduce__()
 
@@ -875,7 +878,6 @@ class DaemonObject(object):
         assert isinstance(objectId, basestring)
         return self.daemon.objectsById[objectId]
     
-
 class Daemon(object):
     """
     Pyro daemon. Contains server side logic and dispatches incoming remote method calls
