@@ -257,7 +257,13 @@ class Proxy(object):
         return True
 
     def __hash__(self):
-        return hash(self._pyroUri) ^ hash(frozenset(self._pyroOneway))
+        try:
+            return hash(self._pyroUri) ^ hash(frozenset(self._pyroOneway))
+        except AttributeError:
+            # In case of cyclic-dependency, the unpickler can call __hash__ on an
+            # uninitialised object. If so, do something bad: return another hash.
+            # This is described in Python issue 1761028 (status=wontfix) 
+            return object.__hash__(self)
 
     def _pyroRelease(self):
         """release the connection to the pyro daemon"""
