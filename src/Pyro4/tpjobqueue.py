@@ -5,10 +5,13 @@ Pyro - Python Remote Objects.  Copyright by Irmen de Jong (irmen@razorvine.net).
 """
 
 from __future__ import with_statement
-import logging
-import weakref
-import time
+
 import Pyro4.threadutil
+import logging
+import time
+import weakref
+
+
 try:
     import queue
 except ImportError:
@@ -195,6 +198,8 @@ class ThreadPooledJobQueue(object):
         (must only be called with self.lock acquired)
         """
         if self.workercount >= Pyro4.config.THREADPOOL_MAXTHREADS:
+            log.warning("Cannot grow the thread pool bigger than %d",
+                            Pyro4.config.THREADPOOL_MAXTHREADS)
             return
         worker = Worker(self)
         self.idle.add(worker)
