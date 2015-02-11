@@ -340,6 +340,7 @@ class Proxy(object):
                 # be reusing the proxy object after catching the exception...
                 self._pyroRelease()
                 raise
+
     def _pyroCancelFuture(self, client_future_uri):
         """
         Ask the server to cancel the future
@@ -347,7 +348,7 @@ class Proxy(object):
         # tricky way to cancel the future: a method without name with first arg the future uri and a special flag
         # Cannot use just the future because it might already be unregistered
         return self._pyroInvoke("", (client_future_uri, ), None, MessageFactory.FLAGS_ASYNC_CANCEL)
-    
+
     def __pyroCreateFutureDaemon(self):
         """
         Find or create a pyro4 daemon
@@ -556,21 +557,6 @@ RUNNING = 'RUNNING'
 CANCELLED = 'CANCELLED'
 FINISHED = 'FINISHED'
 
-_FUTURE_STATES = [
-    PENDING,
-    RUNNING,
-    CANCELLED,
-    FINISHED
-]
-
-_STATE_TO_DESCRIPTION_MAP = {
-    PENDING: "pending",
-    RUNNING: "running",
-    CANCELLED: "cancelled",
-    FINISHED: "finished"
-}
-
-
 class ClientFuture(object):
     """
     A future object which represent the future from a remote asynchronous call
@@ -583,9 +569,9 @@ class ClientFuture(object):
         self._waiters = []
         self._done_callbacks = []
         self._proxy = proxy
-    
+
     # copy-paste
-    def _invoke_callbacks(self): 
+    def _invoke_callbacks(self):
         for callback in self._done_callbacks:
             try:
                 callback(self)
@@ -594,8 +580,8 @@ class ClientFuture(object):
 
     def __repr__(self):
         return '<ClientFuture at %s>' % hex(id(self))
-    
-    
+
+
     def cancel(self):
         with self._condition:
             # already done?
@@ -606,7 +592,7 @@ class ClientFuture(object):
             # get the uri before we release the lock
             # in case the future gets unregistered just after
             uri = self._pyroDaemon.uriFor(self).asString()
-        
+
         # need to cancel the real future
         # One problem: we cannot take the lock when calling remote 
         # (because it might call set_cancelled which also needs the lock)
@@ -619,7 +605,7 @@ class ClientFuture(object):
                 # cannot cancel and not finished => it's running
                 self._state = RUNNING
             return result
-        
+
     def cancelled(self):
         """Return True if the future has cancelled."""
         with self._condition:
@@ -635,20 +621,20 @@ class ClientFuture(object):
         """Return True of the future was cancelled or finished executing."""
         with self._condition:
             return self._state in [CANCELLED, FINISHED]
-        
+
     def add_done_callback(self, fn):
         with self._condition:
             if self._state not in [CANCELLED, FINISHED]:
                 self._done_callbacks.append(fn)
                 return
         fn(self)
-        
+
     def __get_result(self):
         if self._exception:
             raise self._exception
         else:
             return self._result
-        
+
     def result(self, timeout=None):
         with self._condition:
             if self._state == CANCELLED:
@@ -664,7 +650,7 @@ class ClientFuture(object):
                 return self.__get_result()
             else:
                 raise cfutures.TimeoutError()
-            
+
     def exception(self, timeout=None):
         with self._condition:
             if self._state == CANCELLED:
@@ -680,7 +666,7 @@ class ClientFuture(object):
                 return self._exception
             else:
                 raise cfutures.TimeoutError()
-    
+
     # These three methods are to send the result of the asynchronous call
     # after such a call, the future should be frozen.
     def set_cancelled(self):
@@ -693,7 +679,7 @@ class ClientFuture(object):
             self._condition.notify_all()
             self._unregister()
         self._invoke_callbacks()
-        
+
     def set_result(self, result):
         """Sets the return value of work associated with the future.
 
@@ -717,7 +703,7 @@ class ClientFuture(object):
             self._condition.notify_all()
             self._unregister()
         self._invoke_callbacks()
-    
+
     def _unregister(self):
         # needed to be sure to have all references removed once it's not used
         if hasattr(self, "_pyroDaemon"):
