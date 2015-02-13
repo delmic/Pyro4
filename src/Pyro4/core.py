@@ -297,7 +297,7 @@ class Proxy(object):
             self.__pyroCreateConnection()
         if methodname in self._pyroAsyncs:
             flags |= MessageFactory.FLAGS_ASYNC
-            future = ClientFuture(self)
+            future = futures.ClientFuture(self)
             # daemon needed to register the special asynchronous calls
             if not self._pyroFutureDaemon:
                 self.__pyroCreateFutureDaemon()
@@ -549,165 +549,6 @@ class _AsyncRemoteMethod(object):
             asyncresult.value=futures._ExceptionWrapper(sys.exc_info()[1])
 
 
-# from the futures implementation
-# Possible future states (for internal use by the futures package).
-PENDING = 'PENDING'
-RUNNING = 'RUNNING'
-# The future was cancelled by the user...
-CANCELLED = 'CANCELLED'
-FINISHED = 'FINISHED'
-
-class ClientFuture(object):
-    """
-    A future object which represent the future from a remote asynchronous call
-    """
-    def __init__(self, proxy):
-        self._condition = threadutil.Condition() # to be thread-safe
-        self._state = PENDING
-        self._result = None
-        self._exception = None
-        self._waiters = []
-        self._done_callbacks = []
-        self._proxy = proxy
-
-    # copy-paste
-    def _invoke_callbacks(self):
-        for callback in self._done_callbacks:
-            try:
-                callback(self)
-            except Exception:
-                log.exception('exception calling callback for %r', self)
-
-    def __repr__(self):
-        return '<ClientFuture at %s>' % hex(id(self))
-
-
-    def cancel(self):
-        with self._condition:
-            # already done?
-            if self._state == CANCELLED:
-                return True
-            elif self._state == FINISHED:
-                return False
-            # get the uri before we release the lock
-            # in case the future gets unregistered just after
-            uri = self._pyroDaemon.uriFor(self).asString()
-
-        # need to cancel the real future
-        # One problem: we cannot take the lock when calling remote 
-        # (because it might call set_cancelled which also needs the lock)
-        # TODO => don't call set_cancelled when cancelled from remote
-        result = self._proxy._pyroCancelFuture(uri)
-        with self._condition:
-            if result:
-                self._state = CANCELLED
-            elif self._state == PENDING:
-                # cannot cancel and not finished => it's running
-                self._state = RUNNING
-            return result
-
-    def cancelled(self):
-        """Return True if the future has cancelled."""
-        with self._condition:
-            return self._state == CANCELLED
-
-    def running(self):
-        # almost always False because we don't get informed normally 
-        # about the RUNNING state over the network
-        with self._condition:
-            return self._state == RUNNING
-
-    def done(self):
-        """Return True of the future was cancelled or finished executing."""
-        with self._condition:
-            return self._state in [CANCELLED, FINISHED]
-
-    def add_done_callback(self, fn):
-        with self._condition:
-            if self._state not in [CANCELLED, FINISHED]:
-                self._done_callbacks.append(fn)
-                return
-        fn(self)
-
-    def __get_result(self):
-        if self._exception:
-            raise self._exception
-        else:
-            return self._result
-
-    def result(self, timeout=None):
-        with self._condition:
-            if self._state == CANCELLED:
-                raise cfutures.CancelledError()
-            elif self._state == FINISHED:
-                return self.__get_result()
-
-            self._condition.wait(timeout)
-
-            if self._state == CANCELLED:
-                raise cfutures.CancelledError()
-            elif self._state == FINISHED:
-                return self.__get_result()
-            else:
-                raise cfutures.TimeoutError()
-
-    def exception(self, timeout=None):
-        with self._condition:
-            if self._state == CANCELLED:
-                raise cfutures.CancelledError()
-            elif self._state == FINISHED:
-                return self._exception
-
-            self._condition.wait(timeout)
-
-            if self._state == CANCELLED:
-                raise cfutures.CancelledError()
-            elif self._state == FINISHED:
-                return self._exception
-            else:
-                raise cfutures.TimeoutError()
-
-    # These three methods are to send the result of the asynchronous call
-    # after such a call, the future should be frozen.
-    def set_cancelled(self):
-        """Sets the state of the future to cancel.
-
-        Should only be used by Executor implementations and unit tests.
-        """
-        with self._condition:
-            self._state = CANCELLED
-            self._condition.notify_all()
-            self._unregister()
-        self._invoke_callbacks()
-
-    def set_result(self, result):
-        """Sets the return value of work associated with the future.
-
-        Should only be used by Executor implementations and unit tests.
-        """
-        with self._condition:
-            self._result = result
-            self._state = FINISHED
-            self._condition.notify_all()
-            self._unregister()
-        self._invoke_callbacks()
-
-    def set_exception(self, exception):
-        """Sets the result of the future as being the given exception.
-
-        Should only be used by Executor implementations and unit tests.
-        """
-        with self._condition:
-            self._exception = exception
-            self._state = FINISHED
-            self._condition.notify_all()
-            self._unregister()
-        self._invoke_callbacks()
-
-    def _unregister(self):
-        # needed to be sure to have all references removed once it's not used
-        if hasattr(self, "_pyroDaemon"):
-            self._pyroDaemon.unregister(self)
 
 
 def batch(proxy):
@@ -1023,7 +864,7 @@ class Daemon(object):
             
             if flags & MessageFactory.FLAGS_ASYNC:
                 client_future = vargs[0]
-                client_future._pyroOneway.update(["set_cancelled", "set_result", "set_exception"])
+                client_future._pyroOneway.update(["set_cancelled", "set_result", "set_exception", "set_progress"])
                 vargs = vargs[1:]
             elif flags & MessageFactory.FLAGS_ASYNC_CANCEL:
                 client_future_uri = vargs[0]
@@ -1116,10 +957,11 @@ class Daemon(object):
         msg=MessageFactory.createMessage(MessageFactory.MSG_RESULT, data, MessageFactory.FLAGS_EXCEPTION, seq)
         del data
         connection.send(msg)
-        
+
     def _followFuture(self, future, client_future):
         uri = client_future._pyroUri.asString()
         self._uriToFuture[uri] = future
+        logging.debug("folling future for client future %s", uri)
         def on_future_completion(f):
             try:
                 client_future.set_result(f.result())
@@ -1130,7 +972,14 @@ class Daemon(object):
             finally:
                 del self._uriToFuture[uri] # that should be the only ref, so kill connection
         future.add_done_callback(on_future_completion)
-    
+
+        if hasattr(future, "add_update_callback"):
+            logging.debug("Listening to progress update of future")
+            def on_future_progess(f, s, e):
+                client_future.set_progress(s, e)
+            # called at least once immediately, and once just before completion callback
+            future.add_update_callback(on_future_progess)
+
     def _cancelFuture(self, client_future_uri):
         if client_future_uri in self._uriToFuture:
             future = self._uriToFuture[client_future_uri]
