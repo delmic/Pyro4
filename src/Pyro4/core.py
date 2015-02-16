@@ -961,7 +961,7 @@ class Daemon(object):
     def _followFuture(self, future, client_future):
         uri = client_future._pyroUri.asString()
         self._uriToFuture[uri] = future
-        logging.debug("folling future for client future %s", uri)
+        logging.debug("following future for client future %s", uri)
         def on_future_completion(f):
             try:
                 client_future.set_result(f.result())
@@ -974,7 +974,6 @@ class Daemon(object):
         future.add_done_callback(on_future_completion)
 
         if hasattr(future, "add_update_callback"):
-            logging.debug("Listening to progress update of future")
             def on_future_progess(f, s, e):
                 client_future.set_progress(s, e)
             # called at least once immediately, and once just before completion callback
