@@ -970,9 +970,10 @@ class Daemon(object):
             except Exception as ex:
                 try:
                     client_future.set_exception(ex)
-                except (self.serializer.pickle.PicklingError): # exception cannot be sent => simplify
-                    simplex = Exception("%s was raised (but couldn't be passed as is)" % (ex,))
-                    client_future.set_exception(simplex)
+                except: # exception cannot be sent => simplify
+                    msg = "Exception %s %s (Error serializing exception)" % (type(ex), str(ex))
+                    exc_value = errors.PyroError(msg)
+                    client_future.set_exception(exc_value)
             finally:
                 del self._uriToFuture[uri] # that should be the only ref, so kill connection
         future.add_done_callback(on_future_completion)
