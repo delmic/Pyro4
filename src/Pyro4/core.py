@@ -968,7 +968,11 @@ class Daemon(object):
             except cfutures.CancelledError:
                 client_future.set_cancelled()
             except Exception as ex:
-                client_future.set_exception(ex)
+                try:
+                    client_future.set_exception(ex)
+                except (self.serializer.pickle.PicklingError): # exception cannot be sent => simplify
+                    simplex = Exception("%s was raised (but couldn't be passed as is)" % (ex,))
+                    client_future.set_exception(simplex)
             finally:
                 del self._uriToFuture[uri] # that should be the only ref, so kill connection
         future.add_done_callback(on_future_completion)
