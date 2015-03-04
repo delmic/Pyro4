@@ -216,7 +216,7 @@ class ClientFuture(object):
         # For ProgressiveFuture
         self._upd_callbacks = []
         self._start_time = time.time() + 0.1
-        self._end_time = self._start_time + 0.1
+        self._end_time = self._start_time
 
         logging.debug("Created future %r", self)
 
