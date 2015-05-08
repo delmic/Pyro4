@@ -210,6 +210,8 @@ class Proxy(object):
     def __del__(self):
         if hasattr(self, "_pyroConnection"):
             self._pyroRelease()
+        if hasattr(self, "_pyroFutureDaemon") and self._pyroFutureDaemon:
+            self._pyroFutureDaemon.shutdown()
 
     def __getattr__(self, name):
         if name in Proxy.__pyroAttributes:
