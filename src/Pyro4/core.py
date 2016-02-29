@@ -304,6 +304,7 @@ class Proxy(object):
             if not self._pyroFutureDaemon:
                 self.__pyroCreateFutureDaemon()
             self._pyroFutureDaemon.register(future)
+            logging.debug("Going to send client future %s", self._pyroFutureDaemon.uriFor(future))
             vargs = (future,) + vargs # special way to send the future
         data, compressed=self._pyroSerializer.serialize(
             (self._pyroConnection.objectId, methodname, vargs, kwargs),
@@ -857,6 +858,7 @@ class Daemon(object):
         seq=0
         wasBatched=False
         isCallback=False
+        client_future = None
         try:
             msgType, flags, seq, data = MessageFactory.getMessage(conn, MessageFactory.MSG_INVOKE)
             objId, method, vargs, kwargs=self.serializer.deserialize(
@@ -930,7 +932,7 @@ class Daemon(object):
             xt,xv=sys.exc_info()[0:2]
             if xt is not errors.ConnectionClosedError:
                 log.debug("Exception occurred while handling request: %r", xv)
-                if flags & MessageFactory.FLAGS_ASYNC:
+                if client_future is not None:
                     # send exception to the client future
                     client_future.set_exception(ex)
                 elif not flags & MessageFactory.FLAGS_ONEWAY:
@@ -963,7 +965,6 @@ class Daemon(object):
     def _followFuture(self, future, client_future):
         uri = client_future._pyroUri.asString()
         self._uriToFuture[uri] = future
-        logging.debug("following future for client future %s", uri)
         def on_future_completion(f):
             try:
                 client_future.set_result(f.result())
@@ -973,6 +974,7 @@ class Daemon(object):
                 try:
                     client_future.set_exception(ex)
                 except: # exception cannot be sent => simplify
+                    logging.info("Failed to send full exception, will send summary")
                     msg = "Exception %s %s (Error serializing exception)" % (type(ex), str(ex))
                     exc_value = errors.PyroError(msg)
                     client_future.set_exception(exc_value)

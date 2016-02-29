@@ -322,7 +322,7 @@ class ClientFuture(object):
     def set_cancelled(self):
         """Sets the state of the future to cancel.
 
-        Should only be used by Executor implementations and unit tests.
+        Should only be used by the server daemon
         """
         with self._condition:
             self._state = CANCELLED
@@ -347,6 +347,7 @@ class ClientFuture(object):
 
         Should only be used by the server daemon
         """
+        logging.debug("ClientFuture received notification of exception")
         with self._condition:
             self._exception = exception
             self._state = FINISHED
