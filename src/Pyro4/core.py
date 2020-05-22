@@ -26,7 +26,7 @@ except ImportError:
     import copy_reg as copyreg
 from Pyro4 import futures
 
-__all__=["URI", "Proxy", "Daemon", "callback", "batch", "async"]
+__all__=["URI", "Proxy", "Daemon", "callback", "batch"]
 
 if sys.version_info>=(3,0):
     basestring=str
@@ -181,7 +181,6 @@ class Proxy(object):
     .. automethod:: _pyroRelease
     .. automethod:: _pyroReconnect
     .. automethod:: _pyroBatch
-    .. automethod:: _pyroAsync
     """
     _pyroSerializer=util.Serializer()
     __pyroAttributes=frozenset(["__getnewargs__", "__getinitargs__", "_pyroConnection", "_pyroFutureDaemon", "_pyroUri", "_pyroOneway", "_pyroAsyncs", "_pyroTimeout", "_pyroSeq"])
@@ -445,10 +444,6 @@ class Proxy(object):
         """returns a helper class that lets you create batched method calls on the proxy"""
         return _BatchProxyAdapter(self)
 
-    def _pyroAsync(self):
-        """returns a helper class that lets you do asynchronous method calls on the proxy"""
-        return _AsyncProxyAdapter(self)
-
     def _pyroInvokeBatch(self, calls, oneway=False):
         flags=MessageFactory.FLAGS_BATCH
         if oneway:
@@ -498,16 +493,11 @@ class _BatchProxyAdapter(object):
             else:
                 yield result   # it is a regular result object, yield that and continue.
 
-    def __call__(self, oneway=False, async=False):
-        if oneway and async:
-            raise errors.PyroError("async oneway calls make no sense")
-        if async:
-            return _AsyncRemoteMethod(self, "<asyncbatch>")()
-        else:
-            results=self.__proxy._pyroInvokeBatch(self.__calls, oneway)
-            self.__calls=[]   # clear for re-use
-            if not oneway:
-                return self.__resultsgenerator(results)
+    def __call__(self, oneway=False):
+        results=self.__proxy._pyroInvokeBatch(self.__calls, oneway)
+        self.__calls=[]   # clear for re-use
+        if not oneway:
+            return self.__resultsgenerator(results)
 
     def _pyroInvoke(self,name,args,kwargs):
         # ignore all parameters, we just need to execute the batch
@@ -516,52 +506,10 @@ class _BatchProxyAdapter(object):
         return self.__resultsgenerator(results)
 
 
-class _AsyncProxyAdapter(object):
-    def __init__(self, proxy):
-        self.__proxy=proxy
-
-    def __getattr__(self, name):
-        return _AsyncRemoteMethod(self.__proxy, name)
-
-
-class _AsyncRemoteMethod(object):
-    """async method call abstraction (call will run in a background thread)"""
-    def __init__(self, proxy, name):
-        self.__proxy = proxy
-        self.__name = name
-
-    def __getattr__(self, name):
-        return _AsyncRemoteMethod(self.__proxy, "%s.%s" % (self.__name, name))
-
-    def __call__(self, *args, **kwargs):
-        result=futures.FutureResult()
-        thread=threadutil.Thread(target=self.__asynccall, args=(result, args, kwargs))
-        thread.setDaemon(True)
-        thread.start()
-        return result
-
-    def __asynccall(self, asyncresult, args, kwargs):
-        try:
-            # use a copy of the proxy otherwise calls would be serialized,
-            # and use contextmanager to close the proxy after we're done
-            with self.__proxy.__copy__() as proxy:
-                value = proxy._pyroInvoke(self.__name, args, kwargs)
-            asyncresult.value=value
-        except Exception:
-            # ignore any exceptions here, return them as part of the async result instead
-            asyncresult.value=futures._ExceptionWrapper(sys.exc_info()[1])
-
-
-
 
 def batch(proxy):
     """convenience method to get a batch proxy adapter"""
     return proxy._pyroBatch()
-
-
-def async(proxy):
-    """convenience method to get an async proxy adapter"""
-    return proxy._pyroAsync()
 
 
 class MessageFactory(object):
