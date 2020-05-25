@@ -188,6 +188,21 @@ class _ExceptionWrapper(object):
 # * When to drop the reference on the server side? When it's finished? (then
 #   save result/exception?
 
+# TODO: or maybe completely reverse the way this is done:
+# * The remote future/proxy returned from the call is a special object that
+#   knows how to contact back the server to get "news" about the real future.
+# * The server maintains a list of all the futures sent and which haven't been
+#   completed, (or haven't been pinged back once and are less old than a minute)
+# * On instantiation on the client-side, the remote future runs a separate
+#   thread which just connects back to the server and listen to updates.
+#   (this is the "ping")
+# * When the remote future receives the "completed" message, the connection ends.
+# * When the remote future is garbage collected, a message to the server is sent
+#   to let it know the tracking is not necessary anymore (maybe not needed?),
+#   and the connection ends.
+# * => The remote call only returns when the call is done. => slower but we get the
+#   exceptions.
+
 # from the futures implementation
 # Possible future states (for internal use by the futures package).
 PENDING = 'PENDING'
