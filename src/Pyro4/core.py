@@ -956,7 +956,7 @@ class Daemon(object):
         else:
             objectId="obj_"+uuid.uuid4().hex   # generate a new objectId
         if hasattr(obj, "_pyroId") and obj._pyroId != "":     # check for empty string is needed for Cython
-            raise errors.DaemonError("object (%s) already has a Pyro id (%s)", obj, obj._pyroId)
+            raise errors.DaemonError("object (%s) already has a Pyro id (%s)" % (obj, obj._pyroId))
         if objectId in self.objectsById:
             raise errors.DaemonError("object already registered with that id")
         # set some pyro attributes
