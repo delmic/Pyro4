@@ -183,7 +183,7 @@ class Proxy(object):
     .. automethod:: _pyroBatch
     """
     _pyroSerializer=util.Serializer()
-    __pyroAttributes=frozenset(["__getnewargs__", "__getinitargs__", "_pyroConnection", "_pyroFutureDaemon", "_pyroUri", "_pyroOneway", "_pyroAsyncs", "_pyroTimeout", "_pyroSeq"])
+    __pyroAttributes = frozenset(["__getnewargs__", "__getinitargs__", "_pyroConnection", "_pyroFutureDaemon", "_pyroUri", "_pyroOneway", "_pyroAsyncs", "_pyroTimeout", "_pyroSeq"])
 
     def __init__(self, uri):
         """
@@ -207,16 +207,39 @@ class Proxy(object):
         self.__pyroConnLock=threadutil.Lock()
 
     def __del__(self):
+        if log:
+            log.info("proxy not used")
         if hasattr(self, "_pyroConnection"):
             self._pyroRelease()
         if hasattr(self, "_pyroFutureDaemon") and self._pyroFutureDaemon:
+            log.info("Stopping future daemon")
             self._pyroFutureDaemon.shutdown()
+            log.info("Stopped future daemon")
 
     def __getattr__(self, name):
-        if name in Proxy.__pyroAttributes:
+        # Note: this is called also every time a new attribute is *set*.
+
+        if name in Proxy.__pyroAttributes or name.startswith("__"):
             # allows it to be safely pickled
             raise AttributeError(name)
-        return _RemoteMethod(self._pyroInvoke, name)
+        elif name in self._pyroOneway or name in self._pyroAsyncs:
+            # Short-cut, as we know for sure that these remote methods exists
+            pass
+        elif not self._pyroInvoke(name, None, None, MessageFactory.FLAGS_HASATTR):
+            raise AttributeError(name)
+
+        # TODO: if the method starts with _, don't allow it
+        # TODO: hasattr should also check that it's a callable?
+        # TODO: cache the known non-existing methods?
+        # TODO: just receive a list of all acceptable methods (= all callable members which don't start with a _)?
+        #  => That would solve all
+        # the other TODOs, and make it much faster as it never calls anything.
+        # only limitation is that it cannot call new methods afterwards.
+        rmeth = self._pyroGetRemoteMethod(name)
+        # When setting an attribute for the first time, Python checks if it
+        # already exists, by calling __getattr__(), to avoid recursive call, we use __dict__
+        self.__dict__[name] = rmeth
+        return rmeth
 
     def __repr__(self):
         connected="connected" if self._pyroConnection else "not connected"
@@ -272,7 +295,8 @@ class Proxy(object):
             if self._pyroConnection is not None:
                 self._pyroConnection.close()
                 self._pyroConnection=None
-                log.debug("connection released")
+                if log:
+                    log.debug("connection released")
 
     def _pyroBind(self):
         """
@@ -281,6 +305,9 @@ class Proxy(object):
         If the proxy is already bound, it will not bind again.
         """
         return self.__pyroCreateConnection(True)
+
+    def _pyroGetRemoteMethod(self, name):
+        return _RemoteMethod(self._pyroInvoke, name)
 
     def __pyroGetTimeout(self):
         return self.__pyroTimeout
@@ -296,7 +323,7 @@ class Proxy(object):
         if self._pyroConnection is None:
             # rebind here, don't do it from inside the invoke because deadlock will occur
             self.__pyroCreateConnection()
-        if methodname in self._pyroAsyncs:
+        if methodname in self._pyroAsyncs and flags != MessageFactory.FLAGS_HASATTR:
             flags |= MessageFactory.FLAGS_ASYNC
             future = futures.ClientFuture(self)
             # daemon needed to register the special asynchronous calls
@@ -310,9 +337,12 @@ class Proxy(object):
             compress=Pyro4.config.COMPRESSION)
         if compressed:
             flags |= MessageFactory.FLAGS_COMPRESSED
-        if methodname in self._pyroOneway:
+        if methodname in self._pyroOneway and flags != MessageFactory.FLAGS_HASATTR:
             flags |= MessageFactory.FLAGS_ONEWAY
+
         with self.__pyroLock:
+            if methodname == "set_exception":
+                log.info("Going to call to %s", methodname)
             self._pyroSeq=(self._pyroSeq+1)&0xffff
             data=MessageFactory.createMessage(MessageFactory.MSG_INVOKE, data, flags, self._pyroSeq)
             try:
@@ -535,7 +565,8 @@ class MessageFactory(object):
     FLAGS_HMAC = 1<<3
     FLAGS_BATCH = 1<<4
     FLAGS_ASYNC = 1<<5
-    FLAGS_ASYNC_CANCEL = 1<<6 
+    FLAGS_ASYNC_CANCEL = 1<<6
+    FLAGS_HASATTR = 1 << 7
     MAGIC = 0x34E9
     if sys.version_info>=(3,0):
         empty_bytes = bytes([])
@@ -775,11 +806,14 @@ class Daemon(object):
     def shutdown(self):
         """Cleanly terminate a daemon that is running in the requestloop. It must be running
         in a different thread, or this method will deadlock."""
-        log.debug("daemon shutting down")
+        log.info("daemon shutting down")
         self.__mustshutdown.set()
         self.transportServer.wakeup()
+        log.info("wakeing up")
         time.sleep(0.05)
+        log.info("closing")
         self.close()
+        log.info("waiting for full stopped")
         self.__loopstopped.wait()
         log.info("daemon %s shut down", self.locationStr)
 
@@ -845,8 +879,12 @@ class Daemon(object):
                     wasBatched=True
                 elif flags & MessageFactory.FLAGS_ASYNC_CANCEL:
                     data=self._cancelFuture(client_future_uri)
+                elif flags & MessageFactory.FLAGS_HASATTR:
+                    data = hasattr(obj, method)
                 else:
                     # normal single method call
+                    if method == "set_exception":
+                        log.info("Receiving call to %s", method)
                     method=util.resolveDottedAttribute(obj, method, Pyro4.config.DOTTEDNAMES)
                     if flags & MessageFactory.FLAGS_ONEWAY and Pyro4.config.ONEWAY_THREADED:
                         # oneway call to be run inside its own thread
@@ -879,7 +917,7 @@ class Daemon(object):
         except Exception as ex:
             xt,xv=sys.exc_info()[0:2]
             if xt is not errors.ConnectionClosedError:
-                log.debug("Exception occurred while handling request: %r", xv)
+                log.exception("Exception occurred while handling request: %r", xv)
                 if client_future is not None:
                     # send exception to the client future
                     client_future.set_exception(ex)
@@ -915,14 +953,16 @@ class Daemon(object):
         self._uriToFuture[uri] = future
         def on_future_completion(f):
             try:
+                log.info("Returning result of future %s", f)
                 client_future.set_result(f.result())
             except cfutures.CancelledError:
                 client_future.set_cancelled()
             except Exception as ex:
                 try:
+                    log.info("passing exception as result of future %s", f)
                     client_future.set_exception(ex)
                 except: # exception cannot be sent => simplify
-                    logging.info("Failed to send full exception, will send summary")
+                    log.exception("Failed to send full exception, will send summary")
                     msg = "Exception %s %s (Error serializing exception)" % (type(ex), str(ex))
                     exc_value = errors.PyroError(msg)
                     client_future.set_exception(exc_value)
@@ -1028,9 +1068,9 @@ class Daemon(object):
         
     def close(self):
         """Close down the server and release resources"""
-        log.debug("daemon closing")
+        log.info("daemon closing")
         if self.transportServer:
-            self.transportServer.close()
+            self.transportServer.close(joinWorkers=False)
             self.transportServer=None
 
     def __repr__(self):
