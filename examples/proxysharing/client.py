@@ -13,7 +13,7 @@ stop=False
 
 def myThread(nsproxy, proxy):
     global stop
-    name=current_thread().getName()
+    name=current_thread().name
     try:
         while not stop:
             result=nsproxy.list(prefix="example.")

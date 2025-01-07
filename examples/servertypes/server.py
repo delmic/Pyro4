@@ -20,13 +20,13 @@ class Server(object):
     def getconfig(self):
         return Pyro4.config.asDict()
     def delay(self):
-        threadname=current_thread().getName()
+        threadname=current_thread().name
         print("delay called in thread %s" % threadname)
         time.sleep(1)
         self.callcount+=1
         return threadname
     def onewaydelay(self):
-        threadname=current_thread().getName()
+        threadname=current_thread().name
         print("onewaydelay called in thread %s" % threadname)
         time.sleep(1)
         self.callcount+=1

@@ -42,7 +42,7 @@ class Future(object):
         del self.chain  # make it impossible to add new calls to the chain once we started executing it
         result=FutureResult()  # notice that the call chain doesn't sit on the result object
         thread=threadutil.Thread(target=self.__asynccall, args=(result, chain, args, kwargs))
-        thread.setDaemon(True)
+        thread.daemon = True
         thread.start()
         return result
 
@@ -84,13 +84,13 @@ class FutureResult(object):
         result=self.__ready.wait(timeout)
         if result is None:
             # older pythons return None from wait()
-            return self.__ready.isSet()
+            return self.__ready.is_set()
         return result
 
     @property
     def ready(self):
         """Boolean that contains the readiness of the async result"""
-        return self.__ready.isSet()
+        return self.__ready.is_set()
 
     def get_value(self):
         self.__ready.wait()
@@ -120,7 +120,7 @@ class FutureResult(object):
         The result of the current call will be used as the first argument for the next call.
         Optional extra arguments can be provided in args and kwargs.
         """
-        if self.__ready.isSet():
+        if self.__ready.is_set():
             # value is already known, we need to process it immediately (can't use the callchain anymore)
             call = functools.partial(call, self.__value)
             self.__value = call(*args, **kwargs)

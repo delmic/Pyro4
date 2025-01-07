@@ -48,7 +48,7 @@ class EchoServer(object):
 class NameServer(threadutil.Thread):
     def __init__(self, hostname):
         super(NameServer,self).__init__()
-        self.setDaemon(1)
+        self.daemon = True
         self.hostname=hostname
         self.started=threadutil.Event()
 

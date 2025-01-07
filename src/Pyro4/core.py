@@ -360,7 +360,7 @@ class Proxy(object):
         self._pyroFutureDaemon = Daemon()
         thread_daemon = threadutil.Thread(name="Pyro4 daemon for async calls",
                                           target=self._pyroFutureDaemon.requestLoop)
-        thread_daemon.setDaemon(True)
+        thread_daemon.daemon = True
         thread_daemon.start()
 
     def __pyroCheckSequence(self, seq):
@@ -762,7 +762,7 @@ class Daemon(object):
         log.info("daemon %s entering requestloop", self.locationStr)
         try:
             self.__loopstopped.clear()
-            condition=lambda: not self.__mustshutdown.isSet() and loopCondition()
+            condition=lambda: not self.__mustshutdown.is_set() and loopCondition()
             self.transportServer.loop(loopCondition=condition)
         finally:
             self.__loopstopped.set()
@@ -851,7 +851,7 @@ class Daemon(object):
                     if flags & MessageFactory.FLAGS_ONEWAY and Pyro4.config.ONEWAY_THREADED:
                         # oneway call to be run inside its own thread
                         thread=threadutil.Thread(target=method, args=vargs, kwargs=kwargs)
-                        thread.setDaemon(True)
+                        thread.daemon = True
                         thread.start()
                     elif flags & MessageFactory.FLAGS_ASYNC:
                         future=method(*vargs, **kwargs)

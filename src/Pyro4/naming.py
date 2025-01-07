@@ -180,7 +180,7 @@ class BroadcastServer(object):
         """Run the broadcast server loop in its own thread. This is mainly for Jython,
         which has problems with multiplexing it using select() with the Name server itself."""
         thread=Thread(target=self.__requestLoop)
-        thread.setDaemon(True)
+        thread.daemon = True
         thread.start()
         log.debug("broadcast server loop running in own thread")
 
