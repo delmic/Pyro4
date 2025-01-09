@@ -19,7 +19,7 @@ from testsupport import *
 class NSLoopThread(threadutil.Thread):
     def __init__(self, nameserver):
         super(NSLoopThread,self).__init__()
-        self.setDaemon(True)
+        self.daemon = True
         self.nameserver=nameserver
         self.running=threadutil.Event()
         self.running.clear()

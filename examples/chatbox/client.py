@@ -51,7 +51,7 @@ class DaemonThread(threadutil.Thread):
     def __init__(self, chatter):
         threadutil.Thread.__init__(self)
         self.chatter=chatter
-        self.setDaemon(True)
+        self.daemon = True
     def run(self):
         with Pyro4.core.Daemon() as daemon:
             daemon.register(self.chatter)

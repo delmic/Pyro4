@@ -29,8 +29,8 @@ proxy = Pyro4.core.Proxy("PYRONAME:example.proxysharing")
 threads = []
 for i in range(5):
     thread=threadutil.Thread(target=myThread, args=(nsproxy, proxy))
-    # thread.setDaemon(True)
-    thread.setDaemon(False)
+    # thread.daemon = True
+    thread.daemon = False
     threads.append(thread)
     thread.start()
 
@@ -56,7 +56,7 @@ proxy.reset_work()
 threads = []
 for i in range(10):
     thread=threadutil.Thread(target=myThread2, args=[proxy])
-    thread.setDaemon(False)
+    thread.daemon = False
     threads.append(thread)
     thread.start()
 
@@ -81,7 +81,7 @@ threads = []
 for i in range(10):
     proxy=Pyro4.core.Proxy(proxy._pyroUri)  # create a new proxy
     thread=threadutil.Thread(target=myThread2, args=[proxy])
-    thread.setDaemon(False)
+    thread.daemon = False
     threads.append(thread)
     thread.start()
 

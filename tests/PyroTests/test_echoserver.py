@@ -15,7 +15,7 @@ from testsupport import *
 class EchoServerThread(Thread):
     def __init__(self):
         super(EchoServerThread,self).__init__()
-        self.setDaemon(True)
+        self.daemon = True
         self.started=Event()
         self.terminated=Event()
     def run(self):

@@ -50,7 +50,7 @@ class MyThing2(object):
 class DaemonLoopThread(threadutil.Thread):
     def __init__(self, pyrodaemon):
         super(DaemonLoopThread,self).__init__()
-        self.setDaemon(True)
+        self.daemon = True
         self.pyrodaemon=pyrodaemon
         self.running=threadutil.Event()
         self.running.clear()
@@ -351,7 +351,7 @@ class ServerTestsOnce(unittest.TestCase):
                 threadutil.Thread.__init__(self)
                 self.proxy=proxy
                 self.event=event
-                self.setDaemon(True)
+                self.daemon = True
                 self.new_connections.reset()
             def run(self):
                 self.event.wait()
@@ -599,7 +599,7 @@ class ServerTestsThreadNoTimeout(unittest.TestCase):
                 self.proxy=proxy
                 self.terminate=False
                 self.error=True
-                self.setDaemon(True)
+                self.daemon = True
             def run(self):
                 try:
                     while not self.terminate:
@@ -640,7 +640,7 @@ class ServerTestsThreadNoTimeout(unittest.TestCase):
         class ClientThread(threadutil.Thread):
             def __init__(self, uri, name):
                 super(ClientThread,self).__init__()
-                self.setDaemon(True)
+                self.daemon = True
                 self.proxy=Pyro4.core.Proxy(uri)
                 self.name=name
                 self.error=True
