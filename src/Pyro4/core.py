@@ -715,6 +715,7 @@ class Daemon(object):
         self.__loopstopped=threadutil.Event()
         self.__loopstopped.set()
         self._uriToFuture = {}
+        self.methodsById = {}
 
     @property
     def sock(self):
@@ -977,6 +978,16 @@ class Daemon(object):
                 pass
         # register the object in the mapping
         self.objectsById[obj._pyroId]=obj
+        # Patch for exposing methods
+        methodNames = []
+        for attr in dir(obj):
+            try:
+                attrValue = getattr(obj, attr)
+            except Exception:
+                continue
+            if callable(attrValue) and not attr.startswith("_"):
+                methodNames.append(attr)
+        self.methodsById[obj._pyroId] = methodNames
         return self.uriFor(objectId)
 
     def unregister(self, objectOrId):
@@ -1025,7 +1036,17 @@ class Daemon(object):
         else:
             loc=self.locationStr
         return URI("PYRO:%s@%s" % (objectOrId, loc))
-        
+
+    def getMethods(self, objectId=None):
+        """
+        Return the list of method names for the given registered objectId.
+        If objectId is None, return a dict mapping all objectIds to their method lists.
+        """
+        if objectId is not None:
+            return self.methodsById.get(objectId, [])
+        else:
+            return dict(self.methodsById)
+
     def close(self):
         """Close down the server and release resources"""
         log.debug("daemon closing")
