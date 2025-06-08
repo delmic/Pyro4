@@ -183,7 +183,7 @@ class Proxy(object):
     .. automethod:: _pyroBatch
     """
     _pyroSerializer=util.Serializer()
-    __pyroAttributes=frozenset(["__getnewargs__", "__getinitargs__", "_pyroConnection", "_pyroFutureDaemon", "_pyroUri", "_pyroOneway", "_pyroAsyncs", "_pyroTimeout", "_pyroSeq"])
+    __pyroAttributes=frozenset(["__getnewargs__", "__getinitargs__", "_pyroConnection", "_pyroFutureDaemon", "_pyroUri", "_pyroOneway", "_pyroAsyncs", "_pyroTimeout", "_pyroSeq", "_pyroExposed"])
 
     def __init__(self, uri):
         """
@@ -201,6 +201,7 @@ class Proxy(object):
         self._pyroFutureDaemon=None
         self._pyroOneway=set()
         self._pyroAsyncs=set()
+        self._pyroExposed=set()
         self._pyroSeq=0    # message sequence number
         self.__pyroTimeout=Pyro4.config.COMMTIMEOUT
         self.__pyroLock=threadutil.Lock()
@@ -216,6 +217,13 @@ class Proxy(object):
         if name in Proxy.__pyroAttributes:
             # allows it to be safely pickled
             raise AttributeError(name)
+
+        # Directly accessing _pyroExposed would introduce recursion, so bypass it
+        pyro_exposed = self.__dict__.get("_pyroExposed", {})
+        # If the expose set is defined through serialization, only allow methods that are part of it.
+        # If empty, just use the default lazy behavior.
+        if pyro_exposed and name not in pyro_exposed:
+            raise AttributeError(name)
         return _RemoteMethod(self._pyroInvoke, name)
 
     def __repr__(self):
@@ -227,11 +235,25 @@ class Proxy(object):
         return str(self)
 
     def __getstate__(self):
-        return self._pyroUri, self._pyroOneway, self._pyroAsyncs, self._pyroSerializer, self.__pyroTimeout    # skip the connection
+        return (
+            self._pyroUri,
+            self._pyroOneway,
+            self._pyroAsyncs,
+            self._pyroSerializer,
+            self._pyroExposed,
+            self.__pyroTimeout,
+        )    # skip the connection
 
     def __setstate__(self, state):
-        self._pyroUri, self._pyroOneway, self._pyroAsyncs, self._pyroSerializer, self.__pyroTimeout = state
-        self._pyroConnection=None 
+        (
+            self._pyroUri,
+            self._pyroOneway,
+            self._pyroAsyncs,
+            self._pyroSerializer,
+            self._pyroExposed,
+            self.__pyroTimeout,
+        ) = state
+        self._pyroConnection=None
         self._pyroFutureDaemon=None
         self._pyroSeq=0
         self.__pyroLock=threadutil.Lock()
@@ -622,14 +644,26 @@ def get_asyncs(self):
             asyncs.append(name)
     return set(asyncs)
 
+def get_exposed(self):
+    return set(dir(self))
+
 def pyroObjectSerializer(self):
     """reduce function that automatically replaces Pyro objects by a Proxy"""
     daemon=getattr(self,"_pyroDaemon",None)
     if daemon:
         # only return a proxy if the object is a registered pyro object
-        return (Pyro4.core.Proxy, (daemon.uriFor(self),), 
-                (daemon.uriFor(self), get_oneways(self), get_asyncs(self),
-                 util.Serializer(), Pyro4.config.COMMTIMEOUT))
+        return (
+            Pyro4.core.Proxy,
+            (daemon.uriFor(self),),
+            (
+                daemon.uriFor(self),
+                get_oneways(self),
+                get_asyncs(self),
+                util.Serializer(),
+                get_exposed(self),
+                Pyro4.config.COMMTIMEOUT
+            )
+        )
     else:
         return self.__reduce__()
 
@@ -715,7 +749,6 @@ class Daemon(object):
         self.__loopstopped=threadutil.Event()
         self.__loopstopped.set()
         self._uriToFuture = {}
-        self.methodsById = {}
 
     @property
     def sock(self):
@@ -978,16 +1011,6 @@ class Daemon(object):
                 pass
         # register the object in the mapping
         self.objectsById[obj._pyroId]=obj
-        # Patch for exposing methods
-        methodNames = []
-        for attr in dir(obj):
-            try:
-                attrValue = getattr(obj, attr)
-            except Exception:
-                continue
-            if callable(attrValue) and not attr.startswith("_"):
-                methodNames.append(attr)
-        self.methodsById[obj._pyroId] = methodNames
         return self.uriFor(objectId)
 
     def unregister(self, objectOrId):
@@ -1036,16 +1059,6 @@ class Daemon(object):
         else:
             loc=self.locationStr
         return URI("PYRO:%s@%s" % (objectOrId, loc))
-
-    def getMethods(self, objectId=None):
-        """
-        Return the list of method names for the given registered objectId.
-        If objectId is None, return a dict mapping all objectIds to their method lists.
-        """
-        if objectId is not None:
-            return self.methodsById.get(objectId, [])
-        else:
-            return dict(self.methodsById)
 
     def close(self):
         """Close down the server and release resources"""
